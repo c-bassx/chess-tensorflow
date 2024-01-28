@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import chess.pgn
-import chess.engine # Adds stockfish to help train the model
+import chess.engine
 from io import StringIO
 
 print("Program initialized.")
@@ -30,7 +30,7 @@ def fen_to_board(fen):
         board.append(board_row)
     return board
 
-# Define a function to convert FEN strings to 8x8 numerical matrices
+# Convert FEN strings to 8x8 numerical matrices
 def fen_to_matrix(fen):
     """
     Converts a FEN string into an 8x8 numerical matrix that can be fed into the model
@@ -57,12 +57,12 @@ def fen_to_matrix(fen):
                 j += 1
     return board.flatten()
 
-# Load the chess games database
+# Load database
 with open("SicilianNajdorf6g3.pgn", "rb") as f:
     games = f.read().decode('iso-8859-1')
 print("Database loaded.")
 
-# Collect a dataset of labeled chess board positions and their corresponding moves
+# Collect dataset
 positions = []
 moves = []
 pgn = StringIO(games)
@@ -80,7 +80,7 @@ if not positions or not moves:
     print("No valid positions or moves found!")
     exit()
 
-# Convert the positions and moves into numerical matrices
+# Convert to numerical matrices
 X = np.array([fen_to_matrix(pos) for pos in positions])
 y = list(map(lambda m: chess.Move.from_uci(m).uci(), moves))  # convert moves to list of uci strings
 class_labels = sorted(set(y))
@@ -89,7 +89,7 @@ label_map = {label: i for i, label in enumerate(class_labels)}
 y = np.array([label_map[label] for label in y])
 y = tf.keras.utils.to_categorical(y, num_classes=num_classes)
 
-# Define a custom loss function that penalizes illegal and dangerous moves
+# Penalize illegal and dangerous moves
 def custom_loss(y_true, y_pred):
     illegal_moves = tf.math.reduce_any(tf.math.equal(y_true, 0), axis=1)  # find illegal moves
     dangerous_moves = tf.math.reduce_any(tf.math.equal(y_true, 1), axis=1)  # find dangerous moves
@@ -98,7 +98,6 @@ def custom_loss(y_true, y_pred):
     dangerous_penalty = tf.where(dangerous_moves, 1.0, 0.0)  # penalty for dangerous moves
     return loss + illegal_penalty + dangerous_penalty
 
-# Build a TensorFlow model that takes in the preprocessed chess board and outputs the best move
 model = tf.keras.Sequential([
     tf.keras.layers.Dense(128, activation='relu', input_shape=(64,)),
     tf.keras.layers.Dense(128, activation='relu'),
@@ -106,7 +105,7 @@ model = tf.keras.Sequential([
 ])
 print("Tensorflow model built.")
 
-# Define early stopping callback to monitor validation loss and stop training if no improvement is seen for 1 epoch
+# Define early stopping callback
 early_stopping = tf.keras.callbacks.EarlyStopping(
     monitor='val_loss',  # monitor validation loss
     patience=1,  # stop training if no improvement is seen for 1 epoch
@@ -116,13 +115,13 @@ early_stopping = tf.keras.callbacks.EarlyStopping(
 # Create an instance of the Stockfish engine
 engine = chess.engine.SimpleEngine.popen_uci("/usr/local/bin/stockfish")
 
-# Define a function to evaluate the model's moves 
+# Evaluate the model's moves 
 def evaluate_move(move, board):
-    # Make the move on a copy of the board
+    # Make move on a copy of the board
     test_board = board.copy()
     test_board.push(move)
 
-    # Calculate the value of the move based on captures, attacks, threats, checks, defending, pins, and forks
+    # Calculate the value of the move
     value = 0
     if test_board.is_capture(move):
         value += 1
@@ -168,13 +167,13 @@ def evaluate_move(move, board):
     return material_gain '''
 
 def select_move(board):
-    # Get a list of all legal moves on the board
+    # Get list of legal move
     legal_moves = list(board.legal_moves)
 
-    # Calculate the value of each move
+    # Calculate value of each move
     move_values = [evaluate_move(move, board) for move in legal_moves]
 
-    # Select the move with the highest value
+    # Select move w/ the highest value
     best_move = legal_moves[np.argmax(move_values)]
 
     return best_move
@@ -335,21 +334,21 @@ while True:
         if label in legal_moves_uci:
             y_pred_filtered[:, i] = y_pred[:, i]
     best_move_idx = np.argmax(y_pred_filtered)
-    best_move_uci = class_labels[best_move_idx]  # convert index back to uci string
+    best_move_uci = class_labels[best_move_idx]
     best_move = chess.Move.from_uci(best_move_uci)
     if best_move_uci not in legal_moves_uci:
         print("Illegal move predicted!")
-        model.train_on_batch(X_new, y_pred_filtered)  # penalize the model for making an illegal move
+        model.train_on_batch(X_new, y_pred_filtered)
         continue
     
     board.push(best_move)
     print("Best move for", side, "side:", best_move.uci())
     if board.is_checkmate():
         print(side, "is checkmated!")
-        model.train_on_batch(X_new, y_pred_filtered)  # penalize the model for being checkmated
+        model.train_on_batch(X_new, y_pred_filtered)
     elif board.is_check():
         print(side, "is in check!")
-        model.train_on_batch(X_new, y_pred_filtered)  # penalize the model for being checked
+        model.train_on_batch(X_new, y_pred_filtered)
     elif board.is_stalemate():
         print("Stalemate!")
-        model.train_on_batch(X_new, y_pred_filtered)  # penalize the model for causing a stalemate
+        model.train_on_batch(X_new, y_pred_filtered)
